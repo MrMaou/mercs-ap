@@ -1,0 +1,222 @@
+'''
+Lua 5.0 runtime installed into the Mercenaries Recompiled script VM.
+
+This replaces the bytecode patching that the PCSX2 backend does. Instead of
+hijacking constant slots in existing functions, we define an AP table and a few
+global functions, and swap three game globals for wrappers:
+
+- gameflow_GetIntelTotal  -> returns the intel total the client sets
+- AttemptFactionMoodClamp -> applies the reputation floors the client sets
+- Shop_UnlockItem         -> ignores vanilla unlocks; AP unlocks go through
+
+The game can re-run its own scripts (for example after a load), which can put
+the original functions back. AP_EnsureHooks re-applies the wrappers and is
+called on every poll, so that is harmless.
+
+The VM is rebuilt when the player loads a save. All AP state lives in the VM, so
+the client detects the rebuild (AP_Version is nil again) and reinstalls this
+runtime, then re-sends intel, floors and shop unlocks; those are idempotent.
+'''
+
+RUNTIME_VERSION = 'ap-recomp-1'
+
+RUNTIME = r'''
+AP = AP or {}
+AP.version = '@VERSION@'
+AP.intel = AP.intel or 0
+AP.floors = AP.floors or {}
+AP.shop = AP.shop or {}
+AP.unlocked = AP.unlocked or {}
+AP.delivered = AP.delivered or {}
+AP.allow_shop = false
+
+local function ap_norm(name)
+  name = string.lower(name)
+  name = string.gsub(name, '^template_support_', '')
+  return name
+end
+
+function AP_Version()
+  return AP.version
+end
+
+function AP_IntelTotal(chapter)
+  return AP.intel
+end
+
+function AP_MoodClamp()
+  if type(Faction_SetMinimumRelation) ~= 'function' then return end
+  for faction, floor in pairs(AP.floors) do
+    Faction_SetMinimumRelation(faction, floor)
+  end
+end
+
+-- Hook bookkeeping lives outside AP so it survives a runtime reinstall into
+-- the same VM: a wrapper from an earlier install must never be mistaken for the
+-- game's original function (the wrapper would then call itself forever).
+AP_WRAPPERS = AP_WRAPPERS or {}
+AP_ORIGINALS = AP_ORIGINALS or {}
+
+function AP_ShopUnlock(template)
+  local real = AP_ORIGINALS.Shop_UnlockItem
+  if AP.allow_shop and real then
+    return real(template)
+  end
+  -- Vanilla unlock (e.g. after selling an ODF): suppressed, AP owns the shop.
+  AP.blocked = (AP.blocked or 0) + 1
+end
+
+AP_WRAPPERS[AP_IntelTotal] = true
+AP_WRAPPERS[AP_MoodClamp] = true
+AP_WRAPPERS[AP_ShopUnlock] = true
+
+local function ap_hook(name, wrapper)
+  local current = _G[name]
+  if type(current) ~= 'function' or current == wrapper then return end
+  if not AP_WRAPPERS[current] then
+    AP_ORIGINALS[name] = current
+  end
+  _G[name] = wrapper
+end
+
+function AP_EnsureHooks()
+  ap_hook('gameflow_GetIntelTotal', AP_IntelTotal)
+  ap_hook('AttemptFactionMoodClamp', AP_MoodClamp)
+  ap_hook('Shop_UnlockItem', AP_ShopUnlock)
+end
+
+-- Location data, as "key=value" lines.
+function AP_Poll()
+  AP_EnsureHooks()
+  local out = {}
+  local function put(key, value)
+    table.insert(out, key .. '=' .. tostring(value))
+  end
+  put('version', AP.version)
+  local quadrant_name = quadrant
+  if type(quadrant_name) ~= 'string' and type(Utility_ReadStringFromScribbleMemory) == 'function' then
+    quadrant_name = Utility_ReadStringFromScribbleMemory('SkipTo_Map')
+  end
+  put('quadrant', quadrant_name or '')
+  put('blocked_shop', AP.blocked or 0)
+  if type(Utility_ReadNumberFromScribbleMemory) == 'function' then
+    local factions = {'allies', 'china', 'mafia', 'sk'}
+    for _, faction in ipairs(factions) do
+      put('mission.' .. faction, Utility_ReadNumberFromScribbleMemory('current_' .. faction .. '_mission') or 0)
+    end
+  end
+  if type(suit_sequence) == 'table' and type(gameflow_GetCardScribbleMemoryVariableName) == 'function'
+      and type(Utility_ReadStringFromScribbleMemory) == 'function'
+      and type(CARD_RANK_MIN) == 'number' and type(CARD_RANK_MAX) == 'number' then
+    local seen = {}
+    for _, suit in pairs(suit_sequence) do
+      if type(suit) == 'string' and not seen[suit] then
+        seen[suit] = true
+        for rank = CARD_RANK_MIN, CARD_RANK_MAX do
+          local key = gameflow_GetCardScribbleMemoryVariableName(suit, rank)
+          local state = Utility_ReadStringFromScribbleMemory(key)
+          local code = 1
+          if state ~= nil and state == stateKilled then
+            code = 2
+          elseif state ~= nil and state == stateCaptured then
+            code = 3
+          end
+          put('card.' .. suit .. '.' .. rank, code)
+        end
+      end
+    end
+  end
+  return table.concat(out, '\n')
+end
+
+-- Called regularly during normal gameplay: keeps hooks and floors applied and
+-- lets the game notice when AP intel is enough for the Ace mission.
+function AP_Tick()
+  AP_EnsureHooks()
+  AP_MoodClamp()
+  if type(gameflow_AttemptAceMissionUnlock) == 'function' then
+    gameflow_AttemptAceMissionUnlock()
+  end
+  return 'ok'
+end
+
+function AP_SetIntel(value)
+  AP.intel = value
+  return 'ok'
+end
+
+function AP_SetFloors(floors)
+  AP.floors = floors
+  AP_MoodClamp()
+  return 'ok'
+end
+
+-- names: list of shop template names without the template_support_ prefix.
+-- Unlocks each one at most once per VM. Returns how many were unlocked now.
+function AP_SetShop(names)
+  AP_EnsureHooks()
+  local real_unlock = AP_ORIGINALS.Shop_UnlockItem
+  if not real_unlock then return 'nohook' end
+  local by_name = {}
+  if type(tMafiaShop) == 'table' then
+    for _, entry in pairs(tMafiaShop) do
+      if type(entry) == 'table' and type(entry.template) == 'string' then
+        by_name[ap_norm(entry.template)] = entry.template
+      end
+    end
+  end
+  local applied = 0
+  AP.shop = {}
+  for _, name in ipairs(names) do
+    local key = ap_norm(name)
+    AP.shop[key] = true
+    if not AP.unlocked[key] then
+      local template = by_name[key]
+      if not template then
+        template = name
+        if string.find(string.lower(name), '^template_support_') == nil then
+          template = 'template_support_' .. name
+        end
+      end
+      AP.allow_shop = true
+      local ok, err = pcall(real_unlock, template)
+      AP.allow_shop = false
+      if not ok then error('Shop_UnlockItem(' .. template .. ') failed: ' .. tostring(err)) end
+      AP.unlocked[key] = true
+      applied = applied + 1
+    end
+  end
+  return applied
+end
+
+-- One-shot delivery. id makes a retried delivery harmless within one VM.
+function AP_Deliver(id, money, message, support)
+  if AP.delivered[id] then return 'dup' end
+  if money and money ~= 0 then
+    Player_SetMoney(Player_GetMoney() + money)
+  end
+  if message and message ~= '' and type(Ui_PrintHudMessage) == 'function' then
+    Ui_PrintHudMessage(message)
+  end
+  if support and support ~= '' then
+    Support_AddItem('template_support_' .. support, 1)
+  end
+  AP.delivered[id] = true
+  return 'ok'
+end
+
+-- Shop entries as "index=template" lines, for checking the template names.
+function AP_ShopTable()
+  local out = {}
+  if type(tMafiaShop) ~= 'table' then return '' end
+  for index, entry in pairs(tMafiaShop) do
+    if type(entry) == 'table' then
+      table.insert(out, tostring(index) .. '=' .. tostring(entry.template))
+    end
+  end
+  return table.concat(out, '\n')
+end
+
+AP_EnsureHooks()
+return AP.version
+'''.replace('@VERSION@', RUNTIME_VERSION)

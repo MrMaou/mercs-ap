@@ -5,7 +5,7 @@ import os
 from CommonClient import logger
 
 from .lua import LuaTypeError
-from .MercenariesIPC import MercenariesIPC, IPCError
+from .MercenariesIPC import IPCError
 from .MercenariesConnector import MercenariesConnector
 
 _MERCS_DEBUG = 'MERCS_DEBUG' in os.environ
@@ -22,7 +22,6 @@ tracker_loaded = False
 from CommonClient import CommonContext as SuperContext
 class MercenariesContext(SuperContext):
   game = 'Mercenaries'
-  pine_path: str
   items_handling = 0b111  # fully remote
   want_slot_data = True
   tags = {'AP'}
@@ -30,12 +29,11 @@ class MercenariesContext(SuperContext):
   capture_hints = set()
   connector: MercenariesConnector = None
 
-  def __init__(self, server_address: str, slot_name: str, password: str, pine_path: str):
+  def __init__(self, server_address: str, slot_name: str, password: str, ipc):
     super().__init__(server_address, password)
     self.auth = slot_name
     self.locations_checked = set()
-    self.pine_path = pine_path
-    self.ipc = MercenariesIPC(self.pine_path)
+    self.ipc = ipc
     self.debug('Initialization complete.')
 
   def reset_server_state(self):
@@ -200,7 +198,7 @@ class MercenariesContext(SuperContext):
         import traceback
         self.debug(f'Unexpected error talking to the game:')
         self.debug(traceback.format_exc())
-        self.ipc = MercenariesIPC(pine=self.ipc.pine)
+        self.ipc = self.ipc.reset()
         self.connector.game = self.ipc
         await asyncio.sleep(9)
       finally:

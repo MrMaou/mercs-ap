@@ -25,13 +25,13 @@ from typing import Any, Dict, List, Set
 
 from CommonClient import logger
 
-from .MercenariesIPC import MercenariesIPC, IPCError
+from .MercenariesIPC import IPCError
 from ..items import item_by_id
 from ..locations import location_by_id
 
 class MercenariesConnector:
   client: Any # MercenariesClient, but circular dependency
-  game: MercenariesIPC
+  game: Any  # MercenariesIPC (PCSX2) or RecompIPC (Mercenaries Recompiled)
   options: Dict[str, Any]
   messages: deque[str]
 
@@ -106,7 +106,7 @@ class MercenariesConnector:
     except IPCError as e:
       logger.info(f'Error sending items to game, will retry later: {e}')
       # Probably don't need to do this *every* time...
-      self.game = MercenariesIPC(pine=self.game.pine)
+      self.game = self.game.reset()
       pass
 
     return Counter({item.id: new_sent_items[item] for item in new_sent_items})
@@ -191,7 +191,9 @@ class MercenariesConnector:
     # TODO: turn undelivered duplicate unlocks into coupons and cash bonuses.
     support_item = ''
     unlocks = self.item_group('shop-unlock', items)
-    support = self.item_group('shop-coupon', items)
+    # Only coupons that have not been delivered yet; otherwise each sync loop
+    # would hand out another free sample for every coupon ever received.
+    support = (Counter(self.item_group('shop-coupon', items)) - old_sent_items).elements()
     for coupon in support:
       matches = [item for item in unlocks if coupon.applies_to(item)]
       if not matches:

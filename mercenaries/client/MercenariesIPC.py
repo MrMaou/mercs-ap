@@ -89,6 +89,10 @@ class MercenariesIPC:
       self.clear_handles()
       self.inject(L_ptr)
 
+  def reset(self):
+    '''Fresh state on the same PINE connection, after an error.'''
+    return MercenariesIPC(pine=self.pine)
+
   def clear_handles(self):
     self.L_ptr = None
     self.intel_total = None

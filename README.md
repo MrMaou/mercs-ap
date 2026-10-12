@@ -80,6 +80,68 @@ the generated YAML for options. To join, just click `Mercenaries Client` in the
 AP launcher and it should automatically connect to PCSX2.
 
 
+## Playing on Mercenaries Recompiled (Xbox native port)
+
+This fork can also connect to
+[Mercenaries Recompiled](https://github.com/KraftMacAndChee/Mercenaries-Recompiled),
+the native Windows port of the **Xbox** version. The AP world, items, locations
+and YAML options are the same; only the game connection differs.
+
+It needs the matching recomp fork, which adds plugin interface 2 (`run_lua`) and
+the `archipelago-bridge` plugin. The original recomp releases do not have them.
+
+### Setup
+
+1. Build the recomp fork (see its README) from your USA retail **Xbox** ISO.
+2. Build the bridge plugin from
+   `ports/mercenaries/plugins/archipelago-bridge` and copy its output folder to
+   `mods/Archipelago Bridge/` beside `Mercenaries Recompiled.exe`.
+3. Start the game, enable **Archipelago Bridge** in the mod selector, and
+   choose **Launch Modded**. Start a new game; a save with vanilla shop unlocks
+   keeps them.
+4. Start `Mercenaries Client` from the AP launcher. It finds the bridge on
+   `localhost:28012` by itself. Use `--game recomp` to skip PCSX2 detection, or
+   `--recomp host:port` if you changed the port in `bridge.ini`.
+
+### How it works
+
+The PCSX2 backend patches Lua bytecode in emulated memory. The recomp backend
+instead runs Lua source in the game's script VM through the bridge: see
+`mercenaries/client/recomp_runtime.py`. Card status and mission progress come
+from scribble memory; intel, faction floors, money, messages, free samples and
+Merchant of Menace unlocks use the game's own script functions.
+
+### Status
+
+Tested here only against stubs and a fake bridge, not the real game yet.
+Known gaps:
+
+- **Bounty checks are off.** Bounty counts live in native PDA code with no Lua
+  API, and their Xbox addresses are not known yet. Find them with
+  `tools/recomp_repl.py` (`:scan` commands) and fill in
+  `mercenaries/data/recompdata.py`. Until then, set every type to `none` in
+  your YAML, or progression items placed on bounties will be unreachable:
+
+  ```yaml
+  bounty_checks:
+    blueprint: none
+    treasure: none
+    listening post: none
+    monument: none
+  ```
+- **Shop template names** are taken from the game's `tMafiaShop` table, with a
+  `template_support_<name>` fallback. Check them with `:shop` in the console.
+- Whether `Shop_UnlockItem` survives save/load, and whether repeating it is
+  harmless, still needs checking in game. The runtime unlocks each item once per
+  script VM and again after a load.
+
+### Exploring the game
+
+`python tools/recomp_repl.py` opens a console to the running game. Type Lua to
+run it in the game (`=Player_GetMoney()` prints a value), or use `:globals`,
+`:shop`, `:poll`, `:read` and `:scan`. The full command list is at the top of the
+script.
+
 ## Known Issues and Limitations
 
 Card verifications may not be registered by AP until the next time you open your
