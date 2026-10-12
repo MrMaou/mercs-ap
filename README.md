@@ -87,21 +87,34 @@ This fork can also connect to
 the native Windows port of the **Xbox** version. The AP world, items, locations
 and YAML options are the same; only the game connection differs.
 
-It needs the matching recomp fork, which adds plugin interface 2 (`run_lua`) and
-the `archipelago-bridge` plugin. The original recomp releases do not have them.
+It needs the matching recomp fork, which adds plugin interface 2 and the
+**Archipelago** plugin. The original recomp releases do not have them.
 
-### Setup
+### Setup (in-game client)
 
 1. Build the recomp fork (see its README) from your USA retail **Xbox** ISO.
-2. Build the bridge plugin from
-   `ports/mercenaries/plugins/archipelago-bridge` and copy its output folder to
-   `mods/Archipelago Bridge/` beside `Mercenaries Recompiled.exe`.
-3. Start the game, enable **Archipelago Bridge** in the mod selector, and
-   choose **Launch Modded**. Start a new game; a save with vanilla shop unlocks
-   keeps them.
-4. Start `Mercenaries Client` from the AP launcher. It finds the bridge on
-   `localhost:28012` by itself. Use `--game recomp` to skip PCSX2 detection, or
-   `--recomp host:port` if you changed the port in `bridge.ini`.
+2. Build the plugin from `ports/mercenaries/plugins/archipelago` (see its
+   README) and copy its output folder to `mods/Archipelago/` beside
+   `Mercenaries Recompiled.exe`.
+3. Enable **Archipelago** in the mod selector, choose **Launch Modded**, and
+   start a new game; a save with vanilla shop unlocks keeps them.
+4. Press **F7**, enter server, slot and password, and **Connect**.
+
+The client runs inside the game: no Python or Archipelago install is needed to
+play. Generate seeds with this repository's `.apworld` as usual.
+
+### Python client (optional)
+
+`Mercenaries Client` from the AP launcher still works with the recomp, through
+the plugin's local bridge on `localhost:28012`. Use it only while the in-game
+client is disconnected; the bridge refuses changes while the in-game client is
+active. Use `--game recomp` to skip PCSX2 detection, or `--recomp host:port` if
+you changed the bridge port in `archipelago.ini`.
+
+Both clients record delivered one-shot items (cash, free samples) under the same
+per-slot data storage key, `mercs_sent_items_<team>_<slot>`. Older versions of
+this client used the room-wide key `sent_items`; a seed started with an older
+client receives its cash and free samples once more after updating.
 
 ### How it works
 
@@ -118,8 +131,9 @@ Known gaps:
 
 - **Bounty checks are off.** Bounty counts live in native PDA code with no Lua
   API, and their Xbox addresses are not known yet. Find them with
-  `tools/recomp_repl.py` (`:scan` commands) and fill in
-  `mercenaries/data/recompdata.py`. Until then, set every type to `none` in
+  `tools/recomp_repl.py` (`:scan` commands) and enter them under `[Bounties]`
+  in the plugin's `archipelago.ini` (and in `mercenaries/data/recompdata.py`
+  for the Python client). Until then, set every type to `none` in
   your YAML, or progression items placed on bounties will be unreachable:
 
   ```yaml

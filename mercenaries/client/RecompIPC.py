@@ -1,6 +1,6 @@
 '''
 Game backend for Mercenaries Recompiled (the native Windows port of the Xbox
-version), via the archipelago-bridge plugin in the recomp fork.
+version), via the local bridge of the Archipelago plugin in the recomp fork.
 
 It implements the same interface as MercenariesIPC (the PCSX2 backend), so the
 connector and location logic work unchanged. The difference is how it talks to
@@ -14,6 +14,7 @@ menu and mod gameplay hooks), which is tied to the one supported retail XBE.
 
 import itertools
 import struct
+import uuid
 from contextlib import contextmanager
 
 from CommonClient import logger
@@ -49,15 +50,23 @@ class RecompIPC:
   bridge: Bridge
   latest_chapter: int = 0
 
-  def __init__(self, address: str = 'localhost:28012', bridge: Bridge = None):
+  def __init__(self, address: str = 'localhost:28012', bridge: Bridge = None, previous: 'RecompIPC' = None):
     self.bridge = bridge or Bridge(address)
     self.installed_vm = None
     self.intel_value = None
     self.floors = {}
     self.shop_names = None
     self.shop_txn = None
-    self.delivery_ids = itertools.count(1)
-    self.pending_delivery = None
+    if previous is not None:
+      # Delivery ids must never repeat within a VM: the runtime answers 'dup'
+      # for a known id without applying the delivery.
+      self.delivery_prefix = previous.delivery_prefix
+      self.delivery_ids = previous.delivery_ids
+      self.pending_delivery = previous.pending_delivery
+    else:
+      self.delivery_prefix = uuid.uuid4().hex[:8]
+      self.delivery_ids = itertools.count(1)
+      self.pending_delivery = None
     self.warned_bounties = False
     self.doing_location_checks = False
     self.poll = None
@@ -67,8 +76,9 @@ class RecompIPC:
 
   def reset(self):
     '''Fresh state on the same connection, after an error. The bridge itself
-    reconnects after transport errors, so the socket is kept.'''
-    return RecompIPC(bridge=self.bridge)
+    reconnects after transport errors, so the socket is kept. Delivery ids and
+    any unconfirmed delivery carry over.'''
+    return RecompIPC(bridge=self.bridge, previous=self)
 
   #### Game state ####
 
@@ -240,7 +250,7 @@ class RecompIPC:
       return False
     payload = (money, message, support_item)
     if self.pending_delivery is None or self.pending_delivery[1] != payload:
-      self.pending_delivery = (f'd{next(self.delivery_ids)}', payload)
+      self.pending_delivery = (f'{self.delivery_prefix}-{next(self.delivery_ids)}', payload)
     delivery_id = self.pending_delivery[0]
     self._call('AP_Deliver', delivery_id, money, message, support_item)
     self.pending_delivery = None

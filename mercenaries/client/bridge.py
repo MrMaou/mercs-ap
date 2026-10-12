@@ -2,7 +2,7 @@
 Client for the Archipelago bridge plugin in the Mercenaries Recompiled fork.
 
 The plugin listens on 127.0.0.1 and runs requests on the game thread during its
-on_update callback. See ports/mercenaries/plugins/archipelago-bridge/bridge.c in
+on_update callback. See ports/mercenaries/plugins/archipelago/src/socket_bridge.c in
 the recomp fork for the wire format.
 
 Every call is synchronous and blocks until the game has handled the request.

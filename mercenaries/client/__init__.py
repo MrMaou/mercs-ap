@@ -83,7 +83,7 @@ def main(*args):
   parser.add_argument('--game', choices=('auto', 'pcsx2', 'recomp'), default='auto',
                       help='Which game to connect to: PS2 version in PCSX2, Mercenaries Recompiled, or auto-detect')
   parser.add_argument('--recomp', default=RECOMP_BRIDGE,
-                      help='host:port of the Mercenaries Recompiled archipelago-bridge plugin')
+                      help='host:port of the Mercenaries Recompiled Archipelago plugin bridge')
 
   colorama.init()
   args = parser.parse_args(args)

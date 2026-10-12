@@ -139,26 +139,28 @@ class MercenariesContext(SuperContext):
   async def sync_with_game(self, connector):
     self.debug('Game sync running.')
     # sent_items is a map from item ID to number of copies of that item sent to
-    # the game.
+    # the game. Data storage keys are shared by the whole room, so the key names
+    # this slot; the in-game client in Mercenaries Recompiled uses the same key.
+    sent_key = f'mercs_sent_items_{self.team}_{self.slot}'
     await self.send_msgs([
-      {'cmd': 'Set', 'key': 'sent_items', 'want_reply': True, 'default': {},
+      {'cmd': 'Set', 'key': sent_key, 'want_reply': True, 'default': {},
         'operations': [{'operation': 'default', 'value': {}}]}
       ])
     # connector.queue_message('Connection established')
     while self.server:
       try:
-        if 'sent_items' not in self.stored_data:
+        if sent_key not in self.stored_data:
           self.debug('Still waiting for state from server.')
           continue
 
         # Send new items
-        old_sent_items = Counter({int(k): v for k,v in self.stored_data['sent_items'].items()})
+        old_sent_items = Counter({int(k): v for k,v in self.stored_data[sent_key].items()})
         new_sent_items = connector.send_items(self.items_received, old_sent_items)
 
         if new_sent_items != old_sent_items:
           print(f'Updating sent_items, diff: {new_sent_items - old_sent_items}')
           await self.send_msgs([
-            {'cmd': 'Set', 'key': 'sent_items', 'want_reply': True, 'default': {},
+            {'cmd': 'Set', 'key': sent_key, 'want_reply': True, 'default': {},
             'operations': [{'operation': 'replace', 'value': new_sent_items}]}
             ])
 

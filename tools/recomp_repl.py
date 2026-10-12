@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 '''
-Interactive console for Mercenaries Recompiled through the archipelago-bridge
-plugin. Use it to explore the game's Lua globals and to find memory addresses.
+Interactive console for Mercenaries Recompiled through the Archipelago plugin's
+local bridge. Use it to explore the game's Lua globals and to find memory
+addresses. While the in-game client is connected, only reads (:read, :u32,
+:scan) work; Lua is refused so the two cannot both change the game.
 
   python tools/recomp_repl.py [host:port]
 
