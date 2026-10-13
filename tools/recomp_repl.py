@@ -20,6 +20,8 @@ Commands start with a colon:
   :globals TEXT               list global names containing TEXT (case-insensitive)
   :read ADDR LEN              hex dump guest memory
   :u32 ADDR                   read one little-endian u32
+  :consts NAME                list the constants of a Lua function (globals it uses,
+                              strings, numbers), its nested functions included
   :scan start                 snapshot all readable guest RAM
   :scan inc | dec | changed | unchanged
                               keep candidates that changed that way since the last snapshot
@@ -78,6 +80,73 @@ RAM_START = 0x00010000
 RAM_END = 0x04000000
 CHUNK = bridge_mod.MAX_RAW
 FORMATS = {1: 'B', 2: 'H', 4: 'I'}
+
+
+# Lua 5.0 objects in guest memory (32-bit pointers, 16-byte TObject).
+LUA_TNUMBER, LUA_TSTRING = 3, 4
+CLOSURE_ISC, CLOSURE_PROTO = 6, 12
+PROTO_K, PROTO_P, PROTO_SOURCE, PROTO_SIZEK, PROTO_SIZEP, PROTO_LINE = 8, 16, 32, 40, 52, 60
+TOBJECT = 16
+TSTRING_LEN, TSTRING_DATA = 12, 16
+MAX_PROTOS = 64
+
+
+def function_address(bridge, name):
+  text = bridge.lua(f'return tostring({name})')
+  if not text.startswith('function: '):
+    raise ValueError(f'{name} is not a function ({text})')
+  return int(text.split(': ', 1)[1], 16)
+
+
+def read_tstring(bridge, address, limit=200):
+  length = bridge.read_u32(address + TSTRING_LEN)
+  data = bridge.read(address + TSTRING_DATA, min(length, limit))
+  text = data.decode('latin-1')
+  return text + ('...' if length > limit else '')
+
+
+def read_constants(bridge, proto):
+  size = bridge.read_u32(proto + PROTO_SIZEK)
+  if size > 4096:
+    raise ValueError(f'implausible constant count {size} at proto ${proto:08X}')
+  base = bridge.read_u32(proto + PROTO_K)
+  data = bridge.read(base, size * TOBJECT) if size else b''
+  out = []
+  for i in range(size):
+    tt = struct.unpack_from('<I', data, i * TOBJECT)[0]
+    if tt == LUA_TSTRING:
+      out.append(repr(read_tstring(bridge, struct.unpack_from('<I', data, i * TOBJECT + 8)[0])))
+    elif tt == LUA_TNUMBER:
+      value = struct.unpack_from('<d', data, i * TOBJECT + 8)[0]
+      out.append(f'{value:g}')
+    else:
+      out.append(f'<type {tt}>')
+  return out
+
+
+def dump_function(bridge, name):
+  closure = function_address(bridge, name)
+  if bridge.read_u8(closure + CLOSURE_ISC):
+    print(f'  {name} is a C function at ${closure:08X} (engine code, no Lua constants).')
+    return
+  queue = [(bridge.read_u32(closure + CLOSURE_PROTO), name)]
+  seen = 0
+  while queue and seen < MAX_PROTOS:
+    proto, label = queue.pop(0)
+    seen += 1
+    line = bridge.read_u32(proto + PROTO_LINE)
+    source = bridge.read_u32(proto + PROTO_SOURCE)
+    where = f'{read_tstring(bridge, source, 80)}:{line}' if source else f'line {line}'
+    print(f'  [{label}] {where}')
+    for i, text in enumerate(read_constants(bridge, proto)):
+      print(f'    k{i:<3} {text}')
+    nested = bridge.read_u32(proto + PROTO_SIZEP)
+    if 0 < nested <= 256:
+      table = bridge.read(bridge.read_u32(proto + PROTO_P), nested * 4)
+      for j in range(nested):
+        queue.append((struct.unpack_from('<I', table, j * 4)[0], f'{label}/{j}'))
+  if queue:
+    print(f'  ({len(queue)} more nested function(s) not shown)')
 
 
 class Scanner:
@@ -215,6 +284,9 @@ def main():
           addr = int(args[0], 0)
           value = bridge.read_u32(addr)
           print(f'  ${addr:08X} = {value} (0x{value:08X})')
+        elif cmd == 'consts':
+          for name in args:
+            dump_function(bridge, name)
         elif cmd == 'scan':
           sub = args[0] if args else 'list'
           tests = {
