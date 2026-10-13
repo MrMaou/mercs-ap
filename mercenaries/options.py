@@ -110,8 +110,8 @@ class BountyChecks(OptionDict):
   The available check counts are:
          blueprint: vanilla 14, all 110
           treasure: vanilla 14, all 110
-    listening post: vanilla  6, all  56
-          monument: vanilla  2, all  21
+    listening post: vanilla  6, all  55
+          monument: vanilla  2, all  20
   '''
   display_name = 'Bounty Configuration'
   valid_keys = {'blueprint', 'treasure', 'listening post', 'monument'}

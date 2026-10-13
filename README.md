@@ -129,12 +129,6 @@ Merchant of Menace unlocks use the game's own script functions.
 Tested here only against stubs and a fake bridge, not the real game yet.
 Known gaps:
 
-- **Bounty totals.** Bounties are counted from the scribble memory keys the
-  game writes per bounty actor: 110 blueprints, 110 treasures, 55 listening
-  posts and 20 monuments over both maps. The apworld defines up to 56 listening
-  post and 21 monument checks; with `all` (or a number that reaches the top),
-  the 56th listening post and 21st monument cannot be counted on the recomp.
-  `vanilla` stops at 55 and 20 and is fine.
 - **Shop template names** are taken from the game's `tMafiaShop` table, with a
   `template_support_<name>` fallback. Check them with `:shop` in the console.
 - Whether `Shop_UnlockItem` survives save/load, and whether repeating it is

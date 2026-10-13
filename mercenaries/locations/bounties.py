@@ -117,7 +117,7 @@ BOUNTIES = {
   for bounty in chain(
     [BountyLocation(next_id(), 'blueprint', i, 110) for i in range(1, 110+1)],
     [BountyLocation(next_id(), 'treasure', i, 110) for i in range(1, 110+1)],
-    [BountyLocation(next_id(), 'monument', i, 21) for i in range(1, 21+1)],
-    [BountyLocation(next_id(), 'listening post', i, 56) for i in range(1, 56+1)],
+    [BountyLocation(next_id(), 'monument', i, 20) for i in range(1, 20+1)],
+    [BountyLocation(next_id(), 'listening post', i, 55) for i in range(1, 55+1)],
   )
 }
