@@ -26,7 +26,7 @@ which the game stores in the save file, so they always describe the loaded save.
 Number keys only: string length limits in scribble memory are not known.
 '''
 
-RUNTIME_VERSION = 'ap-recomp-2'
+RUNTIME_VERSION = 'ap-recomp-3'
 
 RUNTIME = r'''
 AP = AP or {}
@@ -160,7 +160,8 @@ function AP_SetFloors(floors)
 end
 
 -- names: list of shop template names without the template_support_ prefix.
--- Unlocks each one at most once per VM. Returns how many were unlocked now.
+-- Unlocks each one at most once per VM. Returns how many were unlocked now,
+-- followed by '|' and the failures if the game refused some.
 function AP_SetShop(names)
   AP_EnsureHooks()
   local real_unlock = AP_ORIGINALS.Shop_UnlockItem
@@ -174,6 +175,7 @@ function AP_SetShop(names)
     end
   end
   local applied = 0
+  local failed = {}
   AP.shop = {}
   for _, name in ipairs(names) do
     local key = ap_norm(name)
@@ -189,11 +191,18 @@ function AP_SetShop(names)
       AP.allow_shop = true
       local ok, err = pcall(real_unlock, template)
       AP.allow_shop = false
-      if not ok then error('Shop_UnlockItem(' .. template .. ') failed: ' .. tostring(err)) end
-      AP.unlocked[key] = true
-      applied = applied + 1
+      if ok then
+        AP.unlocked[key] = true
+        applied = applied + 1
+      else
+        -- Keep going: one unlock the game refuses (e.g. before the shop
+        -- exists) must not block the others. It is retried next time.
+        table.insert(failed, template .. ': ' .. tostring(err))
+      end
     end
   end
+  -- "<applied>" or "<applied>|<template: error>; ..." when some failed.
+  if table.getn(failed) > 0 then return applied .. '|' .. table.concat(failed, '; ') end
   return applied
 end
 

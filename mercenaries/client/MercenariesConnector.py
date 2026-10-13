@@ -99,15 +99,29 @@ class MercenariesConnector:
     old_sent_items = Counter({item_by_id(id): old_sent_items[id] for id in old_sent_items})
     new_sent_items = old_sent_items.copy()
     try:
-      self.send_shop_items(self.item_group('shop', items))
-      self.send_intel_items(self.item_group('intel', items))
-      self.send_reputation_items(self.item_group('reputation', items))
-      new_sent_items |= self.send_once(items, old_sent_items)
+      self.game.validate()
     except IPCError as e:
       logger.info(f'Error sending items to game, will retry later: {e}')
       # Probably don't need to do this *every* time...
       self.game = self.game.reset()
-      pass
+      return Counter({item.id: old_sent_items[item] for item in old_sent_items})
+
+    # Each kind of item on its own: one the game refuses (say, a shop unlock
+    # before the shop exists) must not hold up the others, cash above all.
+    steps = [
+      ('shop unlocks', lambda: self.send_shop_items(self.item_group('shop', items))),
+      ('intel', lambda: self.send_intel_items(self.item_group('intel', items))),
+      ('reputation', lambda: self.send_reputation_items(self.item_group('reputation', items))),
+    ]
+    for name, step in steps:
+      try:
+        step()
+      except IPCError as e:
+        logger.info(f'Could not apply {name}, will retry later: {e}')
+    try:
+      new_sent_items |= self.send_once(items, old_sent_items)
+    except IPCError as e:
+      logger.info(f'Could not deliver cash or free samples, will retry later: {e}')
 
     return Counter({item.id: new_sent_items[item] for item in new_sent_items})
 

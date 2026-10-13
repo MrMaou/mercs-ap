@@ -264,8 +264,13 @@ class RecompIPC:
     result = self._call('AP_SetShop', names)
     if result == 'nohook':
       raise IPCError('Shop_UnlockItem is not available yet')
-    if result not in ('', '0'):
-      logger.info(f'Unlocked {result} Merchant of Menace item(s).')
+    applied, _, failed = result.partition('|')
+    if applied not in ('', '0'):
+      logger.info(f'Unlocked {applied} Merchant of Menace item(s).')
+    if failed:
+      # Retried on the next sync; the other item types are not held up.
+      logger.warning(f'The game refused some shop unlocks (will retry): {failed}')
+      return
     self.shop_names = names
     self.shop_txn = txn
 
