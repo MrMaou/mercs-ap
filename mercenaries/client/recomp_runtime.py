@@ -25,12 +25,18 @@ which the game stores in the save file, so they always describe the loaded save.
                save data was replaced (a load) even if the VM was not rebuilt
 Number keys only: string length limits in scribble memory are not known.
 
+Bounties: when a bounty is collected or destroyed, the game writes a scribble
+key named after its actor (bty_blueprint30, swlistenpost18, monument_sw9...).
+The names come from the game's own util_GetBountyName. AP_Poll counts the keys
+that are set, per type and over both maps; scribble memory lives in the save, so
+the counts survive reloads and do not depend on which actors are streamed in.
+
 The game's VM has only the base and table libraries: no string, no math. Keep
 this code to the core language, tostring/tonumber and table.*; anything that
 needs string work (matching shop template names) is done by the client.
 '''
 
-RUNTIME_VERSION = 'ap-recomp-4'
+RUNTIME_VERSION = 'ap-recomp-5'
 
 RUNTIME = r'''
 AP = AP or {}
@@ -41,6 +47,28 @@ AP.shop = AP.shop or {}
 AP.unlocked = AP.unlocked or {}
 AP.delivered = AP.delivered or {}
 AP.allow_shop = false
+
+-- Bounty actor names per type, built once (the strings stay alive, so polling
+-- them makes no garbage). lp/bp/mon/tr = listening post, blueprint, monument,
+-- treasure.
+function AP_BountyNames()
+  local names = {lp = {}, bp = {}, mon = {}, tr = {}}
+  local function add(list, prefix, first, last, pad)
+    for i = first, last do
+      local suffix = i
+      if pad and i < 10 then suffix = '0' .. i end
+      table.insert(list, prefix .. suffix)
+    end
+  end
+  add(names.bp, 'bty_blueprint', 1, 110)
+  add(names.tr, 'bty_treasure', 1, 110, true)
+  add(names.lp, 'swlistenpost', 1, 25, true)
+  add(names.lp, 'nwlistenpost', 1, 30, true)
+  add(names.mon, 'monument_sw', 1, 10)
+  add(names.mon, 'monument_nw', 1, 10)
+  return names
+end
+AP.bounty_names = AP.bounty_names or AP_BountyNames()
 
 function AP_Version()
   return AP.version
@@ -109,6 +137,15 @@ function AP_Poll()
     local factions = {'allies', 'china', 'mafia', 'sk'}
     for _, faction in ipairs(factions) do
       put('mission.' .. faction, Utility_ReadNumberFromScribbleMemory('current_' .. faction .. '_mission') or 0)
+    end
+    for kind, names in pairs(AP.bounty_names) do
+      local n = 0
+      for _, name in ipairs(names) do
+        -- A missing key returns no value at all; the local makes that nil.
+        local value = Utility_ReadNumberFromScribbleMemory(name)
+        if value ~= nil then n = n + 1 end
+      end
+      put('bounty.' .. kind, n)
     end
   end
   if type(suit_sequence) == 'table' and type(gameflow_GetCardScribbleMemoryVariableName) == 'function'

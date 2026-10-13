@@ -34,6 +34,7 @@ Commands start with a colon:
   :quit
 '''
 
+import contextlib
 import importlib.util
 import pathlib
 import struct
@@ -218,10 +219,8 @@ class Scanner:
       bases = {address - (address - RAM_START) % CHUNK for address in self.candidates}
       chunks = {}
       for base in bases:
-        try:
+        with contextlib.suppress(bridge_mod.BridgeError):
           chunks[base] = self.bridge.read(base, CHUNK)
-        except bridge_mod.BridgeError:
-          pass
       self.candidates = {
         address: old for address, old in self.candidates.items()
         if (base := address - (address - RAM_START) % CHUNK) in chunks
@@ -305,7 +304,7 @@ def main():
           elif sub == 'step':
             delta = int(args[1], 0)
             mask = (1 << (8 * scanner.width)) - 1
-            scanner.filter(lambda old, new, delta=delta: new == (old + delta) & mask, 'step')
+            scanner.filter(lambda old, new, delta=delta, mask=mask: new == (old + delta) & mask, 'step')
           elif sub == 'idle':
             scanner.idle(float(args[1]) if len(args) > 1 else 60)
           elif sub == 'width':

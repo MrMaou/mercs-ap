@@ -1,23 +1,18 @@
 '''
-Xbox guest-memory locations for Mercenaries Recompiled that have no Lua API.
+Recomp backend data that does not come from Lua.
 
-Everything else the recomp backend needs comes from Lua (see
-client/recomp_runtime.py). Bounty counts are kept by the native PDA stats code,
-so they must be read from memory, and their Xbox addresses are not known yet.
-
-To find one, run tools/recomp_repl.py while playing, then:
-  scan start
-  (collect one bounty of the type you are hunting)
-  scan inc
-  (repeat collect / scan inc until one or two addresses remain)
-  scan list
-and enter the address here. BOUNTY_COUNT_SIZE is the width of the counter.
+Bounty counts come from AP_Poll (see client/recomp_runtime.py): the game marks
+each collected or destroyed bounty with a scribble memory key, and the runtime
+counts them per type. BOUNTY_POLL_KEYS maps the poll's short keys to the bounty
+type names used by the locations.
 '''
 
 # Bounty type names, matching the PCSX2 backend and the location definitions.
 BOUNTY_TYPES = ('listening post', 'blueprint', 'monument', 'treasure')
 
-# type -> guest address of the collected count. Empty disables bounty checks.
-BOUNTY_COUNT_ADDRS: dict[str, int] = {}
-
-BOUNTY_COUNT_SIZE = 4
+BOUNTY_POLL_KEYS = {
+  'lp': 'listening post',
+  'bp': 'blueprint',
+  'mon': 'monument',
+  'tr': 'treasure',
+}

@@ -67,7 +67,6 @@ class RecompIPC:
       self.delivery_prefix = uuid.uuid4().hex[:8]
       self.delivery_ids = itertools.count(1)
       self.pending_delivery = None
-    self.warned_bounties = False
     self.warned_memory = False
     self.shop_template_map = {}
     self.doing_location_checks = False
@@ -185,8 +184,11 @@ class RecompIPC:
     values = dict(line.split('=', 1) for line in text.splitlines() if '=' in line)
     cards = {suit: [1] * 13 for suit in SUITS}
     missions = {}
+    bounties = dict.fromkeys(recompdata.BOUNTY_TYPES, 0)
     for key, value in values.items():
-      if key.startswith('card.'):
+      if key.startswith('bounty.') and key[7:] in recompdata.BOUNTY_POLL_KEYS:
+        bounties[recompdata.BOUNTY_POLL_KEYS[key[7:]]] = int(float(value))
+      elif key.startswith('card.'):
         suit_name, _, rank = key[5:].rpartition('.')
         suit = suit_from_lua(suit_name)
         if suit is None:
@@ -204,6 +206,7 @@ class RecompIPC:
       'missions': {f: missions.get(f, 0) + (6 if north else 0) for f in FACTIONS},
       'quadrant': values.get('quadrant', ''),
       'blocked_shop': int(float(values.get('blocked_shop', 0))),
+      'bounties': bounties,
     }
 
   @contextmanager
@@ -212,7 +215,7 @@ class RecompIPC:
     self.poll = self._parse_poll(self._call('AP_Poll'))
     self.card_cache = self.poll['cards']
     self.mission_cache = self.poll['missions']
-    self.bounty_cache = self.read_bounties()
+    self.bounty_cache = self.poll['bounties']
     self.doing_location_checks = True
     self.latest_chapter = self.current_chapter()
     try:
@@ -225,25 +228,6 @@ class RecompIPC:
     self.bounty_cache = None
     self.mission_cache = None
     self.card_cache = None
-
-  def read_bounties(self) -> dict[str, int]:
-    if not recompdata.BOUNTY_COUNT_ADDRS:
-      if not self.warned_bounties:
-        logger.warning('Bounty counter addresses for the recomp are not known yet; bounty checks are disabled.')
-        self.warned_bounties = True
-      return dict.fromkeys(recompdata.BOUNTY_TYPES, 0)
-    counts = {}
-    for name in recompdata.BOUNTY_TYPES:
-      addr = recompdata.BOUNTY_COUNT_ADDRS.get(name)
-      if addr is None:
-        counts[name] = 0
-        continue
-      try:
-        raw = self.bridge.read(addr, recompdata.BOUNTY_COUNT_SIZE)
-      except BridgeError as e:
-        raise IPCError(str(e)) from e
-      counts[name] = int.from_bytes(raw, 'little')
-    return counts
 
   def is_checked(self, location):
     assert self.doing_location_checks

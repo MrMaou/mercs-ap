@@ -129,20 +129,12 @@ Merchant of Menace unlocks use the game's own script functions.
 Tested here only against stubs and a fake bridge, not the real game yet.
 Known gaps:
 
-- **Bounty checks are off.** Bounty counts live in native PDA code with no Lua
-  API, and their Xbox addresses are not known yet. Find them with
-  `tools/recomp_repl.py` (`:scan` commands) and enter them under `[Bounties]`
-  in the plugin's `archipelago.ini` (and in `mercenaries/data/recompdata.py`
-  for the Python client). Until then, set every type to `none` in
-  your YAML, or progression items placed on bounties will be unreachable:
-
-  ```yaml
-  bounty_checks:
-    blueprint: none
-    treasure: none
-    listening post: none
-    monument: none
-  ```
+- **Bounty totals.** Bounties are counted from the scribble memory keys the
+  game writes per bounty actor: 110 blueprints, 110 treasures, 55 listening
+  posts and 20 monuments over both maps. The apworld defines up to 56 listening
+  post and 21 monument checks; with `all` (or a number that reaches the top),
+  the 56th listening post and 21st monument cannot be counted on the recomp.
+  `vanilla` stops at 55 and 20 and is fine.
 - **Shop template names** are taken from the game's `tMafiaShop` table, with a
   `template_support_<name>` fallback. Check them with `:shop` in the console.
 - Whether `Shop_UnlockItem` survives save/load, and whether repeating it is
