@@ -16,9 +16,17 @@ called on every poll, so that is harmless.
 The VM is rebuilt when the player loads a save. All AP state lives in the VM, so
 the client detects the rebuild (AP_Version is nil again) and reinstalls this
 runtime, then re-sends intel, floors and shop unlocks; those are idempotent.
+
+Save binding (used by the in-game client): a few number keys in scribble memory,
+which the game stores in the save file, so they always describe the loaded save.
+  ap_seed      stamp of the seed/team/slot this save belongs to (0 = unbound)
+  ap_n<id>     copies of one-shot item <id> (cash, free samples) delivered to it
+  ap_tick      written on every sync; a different value read back means the
+               save data was replaced (a load) even if the VM was not rebuilt
+Number keys only: string length limits in scribble memory are not known.
 '''
 
-RUNTIME_VERSION = 'ap-recomp-1'
+RUNTIME_VERSION = 'ap-recomp-2'
 
 RUNTIME = r'''
 AP = AP or {}
@@ -190,7 +198,45 @@ function AP_SetShop(names)
 end
 
 -- One-shot delivery. id makes a retried delivery harmless within one VM.
-function AP_Deliver(id, money, message, support)
+local function ap_read_number(key)
+  local value = Utility_ReadNumberFromScribbleMemory(key)
+  if type(value) ~= 'number' then return 0 end
+  return value
+end
+
+-- ids: one-shot item ids. Returns "stamp=..", "tick=.." and "<id>=<count>"
+-- lines (the tick read before tick is replaced by new_tick), or "" when
+-- scribble memory is unavailable.
+function AP_SyncSave(ids, new_tick)
+  if type(Utility_ReadNumberFromScribbleMemory) ~= 'function'
+      or type(Utility_WriteNumberToScribbleMemory) ~= 'function' then
+    return ''
+  end
+  local out = {'stamp=' .. ap_read_number('ap_seed'), 'tick=' .. ap_read_number('ap_tick')}
+  for _, id in ipairs(ids) do
+    local count = ap_read_number('ap_n' .. id)
+    if count > 0 then table.insert(out, id .. '=' .. count) end
+  end
+  Utility_WriteNumberToScribbleMemory('ap_tick', new_tick)
+  return table.concat(out, '\n')
+end
+
+-- Binds an unbound save to a seed. 'fail' if the value does not read back.
+function AP_StampSave(stamp)
+  Utility_WriteNumberToScribbleMemory('ap_seed', stamp)
+  if ap_read_number('ap_seed') ~= stamp then return 'fail' end
+  return 'ok'
+end
+
+-- The save data changed under us: forget what this VM believes it applied.
+function AP_ForgetApplied()
+  AP.unlocked = {}
+  return 'ok'
+end
+
+-- counts (optional): {[item id] = copies delivered}, written to the save after
+-- the delivery, so cash and the record of it are saved (or lost) together.
+function AP_Deliver(id, money, message, support, counts)
   if AP.delivered[id] then return 'dup' end
   if money and money ~= 0 then
     Player_SetMoney(Player_GetMoney() + money)
@@ -200,6 +246,11 @@ function AP_Deliver(id, money, message, support)
   end
   if support and support ~= '' then
     Support_AddItem('template_support_' .. support, 1)
+  end
+  if counts then
+    for item, count in pairs(counts) do
+      Utility_WriteNumberToScribbleMemory('ap_n' .. item, count)
+    end
   end
   AP.delivered[id] = true
   return 'ok'
