@@ -17,13 +17,16 @@ Commands start with a colon:
   :install                    install the Archipelago runtime (AP_* functions)
   :poll                       run AP_Poll and print the result
   :shop                       list tMafiaShop entries (index=template)
-  :globals PATTERN            list global names matching a Lua pattern
+  :globals TEXT               list global names containing TEXT (case-insensitive)
   :read ADDR LEN              hex dump guest memory
   :u32 ADDR                   read one little-endian u32
   :scan start                 snapshot all readable guest RAM
   :scan inc | dec | changed | unchanged
                               keep candidates that changed that way since the last snapshot
   :scan eq N                  keep candidates whose value is now N
+  :scan step N                keep candidates that changed by exactly N (e.g. 1 after one pickup)
+  :scan idle SECONDS          watch the candidates that long, dropping any that change
+                              (timers and clocks); do nothing in game meanwhile
   :scan width 1|2|4           counter width (default 4); applies to the next :scan start
   :scan list                  show the remaining candidates (up to 50)
   :quit
@@ -33,6 +36,7 @@ import importlib.util
 import pathlib
 import struct
 import sys
+import time
 
 HERE = pathlib.Path(__file__).resolve().parent
 CLIENT = HERE.parent / 'mercenaries' / 'client'
@@ -60,12 +64,11 @@ end
 return table.concat(out, '\\n')
 '''
 
+# The game's Lua has no string library, so names are filtered here instead.
 GLOBALS = '''
-local out = {{}}
+local out = {}
 for k, v in pairs(_G) do
-  if type(k) == 'string' and string.find(k, {pattern}) then
-    table.insert(out, k .. ' : ' .. type(v))
-  end
+  if type(k) == 'string' then table.insert(out, k .. ' : ' .. type(v)) end
 end
 table.sort(out)
 return table.concat(out, '\\n')
@@ -135,6 +138,32 @@ class Scanner:
     self.snapshot = now
     print(f'{len(found)} candidate(s) left.')
 
+  def idle(self, seconds):
+    if not self.candidates:
+      print('Narrow with inc, dec, changed, step or eq first.')
+      return
+    fmt = '<' + FORMATS[self.width]
+    print(f'Watching {len(self.candidates)} candidate(s) for {seconds:g}s; leave the game alone...')
+    end = time.monotonic() + seconds
+    while True:
+      bases = {address - (address - RAM_START) % CHUNK for address in self.candidates}
+      chunks = {}
+      for base in bases:
+        try:
+          chunks[base] = self.bridge.read(base, CHUNK)
+        except bridge_mod.BridgeError:
+          pass
+      self.candidates = {
+        address: old for address, old in self.candidates.items()
+        if (base := address - (address - RAM_START) % CHUNK) in chunks
+        and struct.unpack_from(fmt, chunks[base], address - base)[0] == old
+      }
+      if not self.candidates or time.monotonic() >= end:
+        break
+      time.sleep(1)
+    self.snapshot = self.read_all()
+    print(f'{len(self.candidates)} candidate(s) left.')
+
   def list(self):
     if not self.candidates:
       print('No candidates.')
@@ -172,8 +201,9 @@ def main():
         elif cmd == 'shop':
           print(bridge.lua('return AP_ShopTable()'))
         elif cmd == 'globals':
-          pattern = args[0] if args else '.'
-          print(bridge.lua(GLOBALS.format(pattern=bridge_mod.lua_quote(pattern))))
+          text = args[0].lower() if args else ''
+          names = bridge.lua(GLOBALS).split('\n')
+          print('\n'.join(n for n in names if text in n.split(' : ')[0].lower()))
         elif cmd == 'read':
           addr, length = int(args[0], 0), int(args[1], 0) if len(args) > 1 else 64
           data = bridge.read(addr, length)
@@ -200,6 +230,12 @@ def main():
           elif sub == 'eq':
             target = int(args[1], 0)
             scanner.filter(lambda old, new, target=target: new == target, 'eq')
+          elif sub == 'step':
+            delta = int(args[1], 0)
+            mask = (1 << (8 * scanner.width)) - 1
+            scanner.filter(lambda old, new, delta=delta: new == (old + delta) & mask, 'step')
+          elif sub == 'idle':
+            scanner.idle(float(args[1]) if len(args) > 1 else 60)
           elif sub == 'width':
             scanner.width = int(args[1])
             print(f'Width set to {scanner.width}; run :scan start.')
