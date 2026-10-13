@@ -68,6 +68,8 @@ class RecompIPC:
       self.delivery_ids = itertools.count(1)
       self.pending_delivery = None
     self.warned_bounties = False
+    self.warned_memory = False
+    self.shop_template_map = {}
     self.doing_location_checks = False
     self.poll = None
 
@@ -86,9 +88,35 @@ class RecompIPC:
     try:
       return self.bridge.call(function, *args)
     except LuaError as e:
+      if 'not enough memory' in str(e):
+        self.collect_garbage()
       raise IPCError(f'{function} failed in game: {e}') from e
     except BridgeError as e:
       raise IPCError(str(e)) from e
+
+  def collect_garbage(self):
+    '''
+    The game's Lua heap is small, and Lua 5.0 does not collect garbage when an
+    allocation fails, so a full heap keeps failing until something collects.
+    '''
+    try:
+      info = self.bridge.lua('collectgarbage() return gcinfo()')
+      if not self.warned_memory:
+        logger.warning(f'The game script memory was full; collected garbage (now {info} KB in use).')
+        self.warned_memory = True
+    except BridgeError:
+      pass
+
+  def shop_templates(self) -> dict[str, str]:
+    '''Lower-cased template name -> exact name, from the game's tMafiaShop.'''
+    if not self.shop_template_map:
+      table = self._call('AP_ShopTable')
+      self.shop_template_map = {
+        template.lower(): template
+        for _, _, template in (line.partition('=') for line in table.splitlines())
+        if template and template != 'nil'
+      }
+    return self.shop_template_map
 
   def in_gameplay(self) -> bool:
     try:
@@ -131,6 +159,7 @@ class RecompIPC:
     self.floors = {}
     self.shop_names = None
     self.shop_txn = None
+    self.shop_template_map = {}
     logger.info('Archipelago runtime installed.')
 
   def tick(self):
@@ -261,7 +290,11 @@ class RecompIPC:
     names = [item.template for item in items]
     if names == self.shop_names and txn == self.shop_txn:
       return
-    result = self._call('AP_SetShop', names)
+    # The game's VM has no string library, so exact template names are found
+    # here; names the shop table does not list get the usual prefix.
+    known = self.shop_templates()
+    templates = [known.get(f'template_support_{name}'.lower(), f'template_support_{name}') for name in names]
+    result = self._call('AP_SetShop', templates)
     if result == 'nohook':
       raise IPCError('Shop_UnlockItem is not available yet')
     applied, _, failed = result.partition('|')

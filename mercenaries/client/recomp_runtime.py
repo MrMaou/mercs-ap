@@ -24,9 +24,13 @@ which the game stores in the save file, so they always describe the loaded save.
   ap_tick      written on every sync; a different value read back means the
                save data was replaced (a load) even if the VM was not rebuilt
 Number keys only: string length limits in scribble memory are not known.
+
+The game's VM has only the base and table libraries: no string, no math. Keep
+this code to the core language, tostring/tonumber and table.*; anything that
+needs string work (matching shop template names) is done by the client.
 '''
 
-RUNTIME_VERSION = 'ap-recomp-3'
+RUNTIME_VERSION = 'ap-recomp-4'
 
 RUNTIME = r'''
 AP = AP or {}
@@ -37,12 +41,6 @@ AP.shop = AP.shop or {}
 AP.unlocked = AP.unlocked or {}
 AP.delivered = AP.delivered or {}
 AP.allow_shop = false
-
-local function ap_norm(name)
-  name = string.lower(name)
-  name = string.gsub(name, '^template_support_', '')
-  return name
-end
 
 function AP_Version()
   return AP.version
@@ -129,7 +127,9 @@ function AP_Poll()
           elseif state ~= nil and state == stateCaptured then
             code = 3
           end
-          put('card.' .. suit .. '.' .. rank, code)
+          -- At large (1) is the default; leaving it out keeps the reply and
+          -- the garbage it makes small.
+          if code ~= 1 then put('card.' .. suit .. '.' .. rank, code) end
         end
       end
     end
@@ -159,54 +159,36 @@ function AP_SetFloors(floors)
   return 'ok'
 end
 
--- names: list of shop template names without the template_support_ prefix.
--- Unlocks each one at most once per VM. Returns how many were unlocked now,
--- followed by '|' and the failures if the game refused some.
-function AP_SetShop(names)
+-- templates: exact shop template names (the client matches them against
+-- AP_ShopTable). Unlocks each at most once per VM. Returns how many were
+-- unlocked now, followed by '|' and the failures if the game refused some.
+function AP_SetShop(templates)
   AP_EnsureHooks()
   local real_unlock = AP_ORIGINALS.Shop_UnlockItem
   if not real_unlock then return 'nohook' end
-  local by_name = {}
-  if type(tMafiaShop) == 'table' then
-    for _, entry in pairs(tMafiaShop) do
-      if type(entry) == 'table' and type(entry.template) == 'string' then
-        by_name[ap_norm(entry.template)] = entry.template
-      end
-    end
-  end
   local applied = 0
   local failed = {}
   AP.shop = {}
-  for _, name in ipairs(names) do
-    local key = ap_norm(name)
-    AP.shop[key] = true
-    if not AP.unlocked[key] then
-      local template = by_name[key]
-      if not template then
-        template = name
-        if string.find(string.lower(name), '^template_support_') == nil then
-          template = 'template_support_' .. name
-        end
-      end
+  for _, template in ipairs(templates) do
+    AP.shop[template] = true
+    if not AP.unlocked[template] then
       AP.allow_shop = true
       local ok, err = pcall(real_unlock, template)
       AP.allow_shop = false
       if ok then
-        AP.unlocked[key] = true
+        AP.unlocked[template] = true
         applied = applied + 1
       else
-        -- Keep going: one unlock the game refuses (e.g. before the shop
-        -- exists) must not block the others. It is retried next time.
+        -- Keep going: one unlock the game refuses must not block the others.
+        -- It is retried next time.
         table.insert(failed, template .. ': ' .. tostring(err))
       end
     end
   end
-  -- "<applied>" or "<applied>|<template: error>; ..." when some failed.
   if table.getn(failed) > 0 then return applied .. '|' .. table.concat(failed, '; ') end
   return applied
 end
 
--- One-shot delivery. id makes a retried delivery harmless within one VM.
 local function ap_read_number(key)
   local value = Utility_ReadNumberFromScribbleMemory(key)
   if type(value) ~= 'number' then return 0 end
