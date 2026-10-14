@@ -6,8 +6,9 @@ or on the Xbox version through
 [Mercenaries Recompiled](https://github.com/KraftMacAndChee/Mercenaries-Recompiled)
 (see [Playing on Mercenaries Recompiled](#playing-on-mercenaries-recompiled-xbox-native-port)).
 
-This is a fork of [ToxicFrog/mercs-ap](https://github.com/ToxicFrog/mercs-ap),
-which is no longer maintained.
+This is [MrMaou/mercs-ap](https://github.com/MrMaou/mercs-ap), a fork of
+[ToxicFrog/mercs-ap](https://github.com/ToxicFrog/mercs-ap), which is no longer
+maintained.
 
 ## Features
 
