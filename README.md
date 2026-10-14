@@ -94,12 +94,14 @@ This fork can also connect to
 the native Windows port of the **Xbox** version. The AP world, items, locations
 and YAML options are the same; only the game connection differs.
 
-It needs the matching recomp fork, which adds plugin interface 2 and the
-**Archipelago** plugin. The original recomp releases do not have them.
+It needs the matching recomp fork,
+[MrMaou/Mercenaries-Recompiled](https://github.com/MrMaou/Mercenaries-Recompiled),
+which adds plugin interface 2 and the **Archipelago** plugin. The original
+recomp releases do not have them.
 
 ### Setup (in-game client)
 
-1. Build the recomp fork (see its README) from your USA retail **Xbox** ISO.
+1. Build the [recomp fork](https://github.com/MrMaou/Mercenaries-Recompiled) (see its README) from your USA retail **Xbox** ISO.
 2. Build the plugin from `ports/mercenaries/plugins/archipelago` (see its
    README) and copy its output folder to `mods/Archipelago/` beside
    `Mercenaries Recompiled.exe`.
